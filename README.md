@@ -1,16 +1,15 @@
-# IPUScout 🔍
+# GGSIPU Exam Results PDF Downloader
 
-An asynchronous service that monitors and automatically downloads exam result PDFs from the GGSIPU (Guru Gobind Singh Indraprastha University) website.
+An asynchronous service that monitors and downloads exam result PDFs from Guru Gobind Singh Indraprastha University (GGSIPU) website.
 
 ## Features
 
-- 🔍 Automatically scans for new result PDFs on the GGSIPU exam results website
-- ⬇️ Downloads results in real-time as they're published
-- 🔄 Continuous monitoring with hourly checks for new results
-- 📝 Detailed logging of all activities
-- 🗃️ Maintains a SQLite database to track downloaded files
-- 🧠 Intelligent deduplication to avoid downloading the same content twice
-- 📈 Provides download statistics
+- **Automatic Monitoring**: Periodically checks for new result PDFs
+- **Efficient Downloads**: Uses asynchronous operations for better performance
+- **Smart Detection**: Uses BeautifulSoup for reliable HTML parsing
+- **Duplicate Prevention**: Uses content hashing to prevent duplicate downloads
+- **Database Tracking**: Stores file metadata in SQLite database
+- **Logging**: Comprehensive logging of all operations
 
 ## Requirements
 
@@ -19,38 +18,39 @@ An asynchronous service that monitors and automatically downloads exam result PD
 
 ## Installation
 
-1. Clone this repository or download the script
-2. Install required dependencies:
+1. Clone this repository
+2. Install dependencies:
 
-```bash
-pip install -r requirements.txt
-```
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 ## Usage
 
-Run the script with Python:
+Run the script to start monitoring:
 
 ```bash
 python async_script.py
 ```
 
 The script will:
-1. Perform an initial scan and download of the first 20 result PDFs
-2. Display download statistics
-3. Enter continuous monitoring mode, checking for new results every hour
 
-To stop the script, press `Ctrl+C` in your terminal.
+1. Perform an initial download of the most recent result PDFs
+2. Continue monitoring for new PDFs every hour
+3. Log all activity to `ggsipu_downloader.log`
+4. Store downloaded PDFs in the `ggsipu_results` directory
 
 ## Configuration
 
-All downloads are stored in the `ggsipu_results` directory by default. The script also creates:
-- A log file (`ggsipu_downloader.log`)
-- A SQLite database (`ggsipu_results.db`) to track downloaded PDFs
+You can modify the following parameters in the script:
 
-## Example Output
+- `base_url`: The main URL to monitor
+- `download_dir`: Directory where PDFs will be stored
+- `db_path`: Path to SQLite database file
 
-```
-==================================================
+## License
+
+This project is open source and available under the MIT License.
 GGSIPU PDF Download Summary - Initial Download
 ==================================================
 Initial Downloads: 15 successful, 0 failed, 5 skipped

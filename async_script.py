@@ -18,6 +18,7 @@ from urllib.parse import urljoin, urlparse
 from dataclasses import dataclass
 import sqlite3
 import time
+from bs4 import BeautifulSoup  # Added BeautifulSoup import
 
 # Configure logging
 logging.basicConfig(
@@ -116,30 +117,28 @@ class GGSIPUDownloader:
             return None
             
     async def extract_pdf_links(self, html_content: str, base_url: str) -> List[PDFResult]:
-        """Extract PDF links from HTML content"""
+        """Extract PDF links from HTML content using BeautifulSoup"""
         pdf_results = []
         
-        # Common patterns for PDF links on GGSIPU website
-        pdf_patterns = [
-            r'href=["\'](.*?\.pdf)["\']',
-            r'href=["\'](.*?result.*?\.pdf)["\']',
-            r'href=["\'](.*?Result.*?\.pdf)["\']',
-            r'href=["\'](.*?RESULT.*?\.pdf)["\']'
-        ]
+        # Parse the HTML content
+        soup = BeautifulSoup(html_content, 'html.parser')
         
-        for pattern in pdf_patterns:
-            matches = re.findall(pattern, html_content, re.IGNORECASE)
-            for match in matches:
+        # Find all links (a tags)
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            
+            # Check if link points to a PDF file
+            if href.lower().endswith('.pdf'):
                 # Clean and normalize URL
-                pdf_url = urljoin(base_url, match)
+                pdf_url = urljoin(base_url, href)
                 
-                # Extract title and filename
+                # Extract filename
                 filename = Path(urlparse(pdf_url).path).name
-                if not filename or not filename.endswith('.pdf'):
+                if not filename:
                     continue
-                    
-                # Try to extract title from surrounding HTML
-                title = self._extract_title_from_context(html_content, match)
+                
+                # Extract title from the link text or surrounding context
+                title = self._extract_title_from_link(link)
                 
                 pdf_result = PDFResult(
                     url=pdf_url,
@@ -149,37 +148,52 @@ class GGSIPUDownloader:
                 )
                 
                 pdf_results.append(pdf_result)
-                
+        
         return pdf_results
         
-    def _extract_title_from_context(self, html_content: str, pdf_link: str) -> str:
-        """Extract title from HTML context around PDF link"""
-        # Find the context around the PDF link
-        link_index = html_content.find(pdf_link)
-        if link_index == -1:
-            return Path(pdf_link).stem
+    def _extract_title_from_link(self, link_tag) -> str:
+        """Extract title from BeautifulSoup link tag"""
+        # First try to use the link text itself
+        if link_tag.string and link_tag.string.strip():
+            return link_tag.string.strip()
+        
+        # If link has no text but contains another tag (like an image)
+        if link_tag.find('img') and link_tag.find('img').get('alt'):
+            return link_tag.find('img').get('alt').strip()
             
-        # Look for title in surrounding 200 characters
-        start = max(0, link_index - 100)
-        end = min(len(html_content), link_index + 100)
-        context = html_content[start:end]
+        # Try to get text from parent paragraph or list item
+        parent = link_tag.find_parent(['p', 'li', 'td', 'div'])
+        if parent and parent.get_text().strip():
+            # Get a cleaned version of the parent text
+            text = parent.get_text().strip()
+            # Limit to reasonable length
+            if len(text) > 100:
+                text = text[:100] + '...'
+            return text
+            
+        # Fall back to the filename
+        filename = Path(link_tag['href']).stem
+        return filename.replace('_', ' ').replace('-', ' ').title()
         
-        # Try to extract meaningful title
-        title_patterns = [
-            r'<[^>]*title=["\'](.*?)["\'][^>]*>',
-            r'<[^>]*alt=["\'](.*?)["\'][^>]*>',
-            r'>\s*(.*?result.*?)\s*<',
-            r'>\s*(.*?Result.*?)\s*<'
-        ]
+    def _extract_additional_result_urls(self, html_content: str) -> List[str]:
+        """Extract additional result page URLs using BeautifulSoup"""
+        urls = []
         
-        for pattern in title_patterns:
-            matches = re.findall(pattern, context, re.IGNORECASE)
-            if matches:
-                title = matches[0].strip()
-                if title and len(title) > 3:
-                    return title
+        # Parse the HTML content
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Find all links
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            
+            # Check if the link points to an HTML page with 'result' in the name
+            if (href.lower().endswith('.htm') or href.lower().endswith('.html')) and \
+               ('result' in href.lower() or 'exam' in href.lower()):
+                full_url = urljoin(self.base_url, href)
+                if full_url not in urls and full_url != self.base_url:
+                    urls.append(full_url)
                     
-        return Path(pdf_link).stem
+        return urls[:10]  # Limit to avoid excessive requests
         
     async def download_pdf(self, pdf_result: PDFResult) -> Tuple[bool, bool]:
         """Download a single PDF file
@@ -320,26 +334,6 @@ class GGSIPUDownloader:
         logger.info(f"Found {len(new_pdfs)} new PDFs out of {len(pdf_results)} total")
         return new_pdfs
         
-    def _extract_additional_result_urls(self, html_content: str) -> List[str]:
-        """Extract additional result page URLs"""
-        urls = []
-        
-        # Common patterns for result page links
-        patterns = [
-            r'href=["\'](.*?result.*?\.htm)["\']',
-            r'href=["\'](.*?Result.*?\.htm)["\']',
-            r'href=["\'](.*?RESULT.*?\.htm)["\']'
-        ]
-        
-        for pattern in patterns:
-            matches = re.findall(pattern, html_content, re.IGNORECASE)
-            for match in matches:
-                full_url = urljoin(self.base_url, match)
-                if full_url not in urls and full_url != self.base_url:
-                    urls.append(full_url)
-                    
-        return urls[:10]  # Limit to avoid excessive requests
-        
     async def download_all_new_pdfs(self, limit: Optional[int] = None) -> Dict[str, int]:
         """Download all newly discovered PDFs"""
         stats = {"successful": 0, "failed": 0, "skipped": 0}
@@ -432,7 +426,7 @@ async def main():
         async with GGSIPUDownloader() as downloader:
             # Initial download of first 10 results
             logger.info("Starting initial download of first 10 results...")
-            stats = await downloader.download_all_new_pdfs(limit=20)
+            stats = await downloader.download_all_new_pdfs(limit=20 )
             
             download_stats = downloader.get_download_stats()
             
