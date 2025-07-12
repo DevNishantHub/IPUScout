@@ -1,3 +1,13 @@
+# GGSIPU Results Monitor & Downloader - Dependencies
+
+# Asynchronous HTTP client/server framework
 aiohttp>=3.8.1
+
+# File operations for asyncio (async file handling)
 aiofiles>=0.8.0
+
+# HTML/XML parsing library
 beautifulsoup4>=4.10.0
+
+# XML and HTML parser (used by BeautifulSoup for better performance)
+lxml>=4.9.0

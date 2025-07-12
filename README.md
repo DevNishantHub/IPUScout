@@ -1,64 +1,74 @@
-# GGSIPU Exam Results PDF Downloader
+# GGSIPU Results Monitor & Downloader
 
-An asynchronous service that monitors and downloads exam result PDFs from Guru Gobind Singh Indraprastha University (GGSIPU) website.
+Automatically monitors and downloads exam result PDFs from GGSIPU website with 24-hour auto-cleanup.
 
 ## Features
 
-- **Automatic Monitoring**: Periodically checks for new result PDFs
-- **Efficient Downloads**: Uses asynchronous operations for better performance
-- **Smart Detection**: Uses BeautifulSoup for reliable HTML parsing
-- **Duplicate Prevention**: Uses content hashing to prevent duplicate downloads
-- **Database Tracking**: Stores file metadata in SQLite database
-- **Logging**: Comprehensive logging of all operations
+- **Auto-Monitoring**: Continuously checks for new exam results
+- **Smart Detection**: MD5 hashing to detect new PDFs
+- **Auto-Cleanup**: Deletes PDFs exactly 24 hours after download
+- **Multiple Modes**: Monitor, download-all, test, status, cleanup-only
 
-## Requirements
+## Quick Start
 
-- Python 3.7 or higher
-- Dependencies listed in `requirements.txt`
-
-## Installation
-
-1. Clone this repository
-2. Install dependencies:
-
+1. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
 
+2. **Start monitoring**:
+   ```bash
+   python ggsipu_downloader.py --monitor
+   ```
+
 ## Usage
 
-Run the script to start monitoring:
-
 ```bash
-python async_script.py
+# Start monitoring (5-minute intervals)
+python ggsipu_downloader.py --monitor
+
+# Download all current results
+python ggsipu_downloader.py --download-all
+
+# Check once for new results
+python ggsipu_downloader.py --check-once
+
+# Test system components
+python ggsipu_downloader.py --test
+
+# Show current status
+python ggsipu_downloader.py --status
 ```
 
-The script will:
+## How It Works
 
-1. Perform an initial download of the most recent result PDFs
-2. Continue monitoring for new PDFs every hour
-3. Log all activity to `ggsipu_downloader.log`
-4. Store downloaded PDFs in the `ggsipu_results` directory
+1. Monitors GGSIPU website every 5 minutes
+2. Downloads new PDFs when detected
+3. Auto-deletes files after 24 hours
+4. Tracks everything in JSON metadata files
 
-## Configuration
+## File Structure
 
-You can modify the following parameters in the script:
-
-- `base_url`: The main URL to monitor
-- `download_dir`: Directory where PDFs will be stored
-- `db_path`: Path to SQLite database file
-
-## License
-
-This project is open source and available under the MIT License.
-GGSIPU PDF Download Summary - Initial Download
-==================================================
-Initial Downloads: 15 successful, 0 failed, 5 skipped
-Total PDFs tracked: 20
-Total downloaded: 15
-Total size: 45.32 MB
-Success rate: 75.0%
-==================================================
-
-Starting continuous monitoring for new results...
 ```
+ggsipu_results/
+├── download_metadata.json    # Download tracking
+├── monitoring_data.json      # Monitoring stats
+└── [PDFs]                   # Auto-deleted after 24h
+```
+
+## Requirements
+
+- Python 3.7+
+- Internet connection
+- ~50MB disk space
+
+## Dependencies
+
+- `aiohttp` - Async HTTP requests
+- `aiofiles` - Async file operations
+- `beautifulsoup4` - HTML parsing
+- `lxml` - XML/HTML parser
+
+## Author
+
+**DevNishantHub** - [GitHub](https://github.com/DevNishantHub) | [IPUScout](https://github.com/DevNishantHub/IPUScout)
