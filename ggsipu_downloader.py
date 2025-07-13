@@ -327,6 +327,10 @@ class GGSIPUDownloader:
             
             monitoring_data = self.load_monitoring_data()
             
+            # Always increment total_checks since we performed a check
+            monitoring_data['total_checks'] += 1
+            monitoring_data['last_check'] = datetime.now()
+            
             # First time check or page changed
             if not monitoring_data['page_hash'] or current_hash != monitoring_data['page_hash']:
                 
@@ -353,8 +357,6 @@ class GGSIPUDownloader:
                 # Update monitoring data
                 monitoring_data['page_hash'] = current_hash
                 monitoring_data['known_pdfs'] = current_pdfs
-                monitoring_data['last_check'] = datetime.now()
-                monitoring_data['total_checks'] += 1
                 
                 if new_pdfs:
                     monitoring_data['new_pdfs_found'] += len(new_pdfs)
@@ -371,8 +373,6 @@ class GGSIPUDownloader:
                     return []
             else:
                 # Page hasn't changed
-                monitoring_data['last_check'] = datetime.now()
-                monitoring_data['total_checks'] += 1
                 self.save_monitoring_data(monitoring_data)
                 logger.info("No changes detected on website")
                 return []
@@ -820,4 +820,5 @@ Default (no arguments): Start monitoring with 5-minute intervals
             logger.error(f" Error: {e}")
 
 if __name__ == "__main__":
+    
     asyncio.run(main())
