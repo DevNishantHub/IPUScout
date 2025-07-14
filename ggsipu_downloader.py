@@ -487,12 +487,14 @@ class GGSIPUDownloader:
         logger.info(" Performing initial scan...")
         await self.check_for_new_results()
         
-        check_count = 0
         while self.is_monitoring:
             try:
-                check_count += 1
                 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                logger.info(f"\n Check #{check_count} at {current_time}")
+                
+                # Get current check number before the check
+                monitoring_data = self.load_monitoring_data()
+                next_check_num = monitoring_data['total_checks'] + 1
+                logger.info(f"\n Check #{next_check_num} at {current_time}")
                 
                 # Clean up expired files
                 deleted_count = await self.cleanup_expired_files()
@@ -505,7 +507,7 @@ class GGSIPUDownloader:
                     downloaded = await self.download_new_pdfs(new_pdfs)
                     logger.info(f"Downloaded {downloaded} new PDFs")
                 
-                # Show monitoring stats
+                # Show monitoring stats (reload to get updated counts)
                 monitoring_data = self.load_monitoring_data()
                 metadata = self.load_metadata()
                 active_files = len(metadata)
