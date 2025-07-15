@@ -33,9 +33,6 @@ python ggsipu_downloader.py --download-all
 # Check once for new results
 python ggsipu_downloader.py --check-once
 
-# Test system components
-python ggsipu_downloader.py --test
-
 # Show current status
 python ggsipu_downloader.py --status
 ```
