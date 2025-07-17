@@ -23,15 +23,22 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class GGSIPUDownloader:
-    def __init__(self, monitor_interval=300):  # Default 5 minutes
+    def __init__(self, monitor_interval=300, filter_keyword=None):  # Default 5 minutes
         self.base_url = "http://ggsipu.ac.in/ExamResults/ExamResultsmain.htm"
         self.download_dir = Path("ggsipu_results")
         self.download_dir.mkdir(exist_ok=True)
-        self.metadata_file = self.download_dir / "download_metadata.json"
-        self.monitoring_data_file = self.download_dir / "monitoring_data.json"
+        
+        # Create separate metadata folder for JSON files
+        self.metadata_dir = self.download_dir / "metadata"
+        self.metadata_dir.mkdir(exist_ok=True)
+        
+        self.metadata_file = self.metadata_dir / "download_metadata.json"
+        self.monitoring_data_file = self.metadata_dir / "monitoring_data.json"
+        self.latest_result_file = self.metadata_dir / "latest_result.json"
         self.session = None
         self.monitor_interval = monitor_interval  # seconds between checks
         self.is_monitoring = False
+        self.filter_keyword = filter_keyword.lower() if filter_keyword else None  # User-provided keyword filter
         
     async def __aenter__(self):
         # Optimized connector with connection pooling
@@ -101,20 +108,13 @@ class GGSIPUDownloader:
             'date_source': date_source
         }
     
-    def is_likely_recent(self, filename, title):
-        """Check if PDF seems recent based on keywords"""
+    def matches_keyword_filter(self, filename, title):
+        """Check if PDF matches user-provided keyword filter"""
+        if not self.filter_keyword:
+            return True  # No filter means all PDFs pass
+        
         text = f"{filename} {title}".lower()
-        
-        # Recent indicators
-        recent_keywords = [
-            '2025', '2024',  # Recent years
-            'july', 'june', 'may', 'april', 'march',  # Recent months
-            'latest', 'new', 'recent', 'current',
-            'jul', 'jun', 'may', 'apr', 'mar'
-        ]
-        
-        score = sum(1 for keyword in recent_keywords if keyword in text)
-        return score >= 2  # Must have at least 2 indicators
+        return self.filter_keyword in text
     
     async def get_all_pdfs(self):
         """Get PDF links from main page with concurrent processing"""
@@ -157,22 +157,31 @@ class GGSIPUDownloader:
             date_str = pdf['date'].strftime('%Y-%m-%d')
             logger.info(f"   {pdf['filename'][:40]:<40} -> {date_str} ({pdf['date_source']})")
         
-        # Remove duplicates and sort by relevance
+        # Remove duplicates and filter by user keyword
         unique_pdfs = {pdf['url']: pdf for pdf in all_pdfs}.values()
         
-        def sort_key(pdf):
-            is_recent = self.is_likely_recent(pdf['filename'], pdf['title'])
-            return (is_recent, pdf['date'], -pdf['position'])
+        # Apply keyword filter if provided
+        if self.filter_keyword:
+            filtered_pdfs = [pdf for pdf in unique_pdfs if self.matches_keyword_filter(pdf['filename'], pdf['title'])]
+            logger.info(f"Keyword filter '{self.filter_keyword}': {len(filtered_pdfs)} out of {len(list(unique_pdfs))} PDFs match")
+        else:
+            filtered_pdfs = list(unique_pdfs)
+            logger.info(f"No keyword filter applied: processing all {len(filtered_pdfs)} PDFs")
         
-        sorted_pdfs = sorted(unique_pdfs, key=sort_key, reverse=True)
+        # Sort by date and position (most recent first)
+        def sort_key(pdf):
+            return (pdf['date'], -pdf['position'])
+        
+        sorted_pdfs = sorted(filtered_pdfs, key=sort_key, reverse=True)
         
         # Show top results
-        logger.info(f"Total unique PDFs: {len(sorted_pdfs)}")
-        logger.info("Top 10 latest PDFs:")
+        if self.filter_keyword:
+            logger.info(f"Top 10 PDFs matching '{self.filter_keyword}':")
+        else:
+            logger.info("Top 10 PDFs:")
         for i, pdf in enumerate(sorted_pdfs[:10], 1):
             date_str = pdf['date'].strftime('%Y-%m')
-            recent_flag = "NEW" if self.is_likely_recent(pdf['filename'], pdf['title']) else "   "
-            logger.info(f"   {i:2d}. {recent_flag} {pdf['filename'][:50]:<50} ({date_str})")
+            logger.info(f"   {i:2d}. {pdf['filename'][:60]:<60} ({date_str})")
         
         return sorted_pdfs
     
@@ -304,6 +313,43 @@ class GGSIPUDownloader:
         except Exception as e:
             logger.error(f"Could not save monitoring data: {e}")
     
+    def load_latest_result(self):
+        """Load the latest result information"""
+        if self.latest_result_file.exists():
+            try:
+                with open(self.latest_result_file, 'r') as f:
+                    data = json.load(f)
+                    if 'timestamp' in data:
+                        data['timestamp'] = datetime.fromisoformat(data['timestamp'])
+                    return data
+            except Exception as e:
+                logger.warning(f"Could not load latest result: {e}")
+        return None
+    
+    def save_latest_result(self, pdf_info):
+        """Save the latest result information"""
+        try:
+            latest_data = {
+                'filename': pdf_info['filename'],
+                'title': pdf_info['title'],
+                'url': pdf_info['url'],
+                'timestamp': datetime.now(),
+                'position': pdf_info.get('position', 0),
+                'date_source': pdf_info.get('date_source', 'unknown')
+            }
+            
+            # Convert datetime to ISO string for JSON
+            json_data = latest_data.copy()
+            json_data['timestamp'] = latest_data['timestamp'].isoformat()
+            
+            with open(self.latest_result_file, 'w') as f:
+                json.dump(json_data, f, indent=2)
+                
+            logger.info(f"Updated latest result tracker: {pdf_info['filename']}")
+            
+        except Exception as e:
+            logger.error(f"Could not save latest result: {e}")
+    
     def get_page_hash(self, html_content):
         """Generate hash of PDF links section to detect changes"""
         # Extract only PDF links to avoid false positives from dynamic content
@@ -364,6 +410,10 @@ class GGSIPUDownloader:
                     for pdf in new_pdfs:
                         logger.info(f"   {pdf['filename']}")
                     
+                    # Update latest result tracker with the first new PDF (most recent)
+                    if new_pdfs:
+                        self.save_latest_result(new_pdfs[0])
+                    
                     self.save_monitoring_data(monitoring_data)
                     return new_pdfs
                 else:
@@ -398,6 +448,8 @@ class GGSIPUDownloader:
             success = await self.download_pdf(pdf)
             if success:
                 downloaded += 1
+                # Update latest result tracker after successful download
+                self.save_latest_result(pdf)
         
         return downloaded
     
@@ -436,7 +488,7 @@ class GGSIPUDownloader:
         
         all_pdfs = await self.get_all_pdfs()
         
-        logger.info(f"\nDownloading ALL {len(all_pdfs)} PDFs...")
+        logger.info(f"\nDownloading {len(all_pdfs)} PDFs...")
         logger.info("Each PDF will be automatically deleted exactly 1 day after download")
         
         # Download with controlled concurrency (1 at a time to avoid timeouts)
@@ -444,7 +496,11 @@ class GGSIPUDownloader:
         
         async def download_with_semaphore(pdf):
             async with semaphore:
-                return await self.download_pdf(pdf)
+                success = await self.download_pdf(pdf)
+                if success:
+                    # Update latest result tracker after successful download
+                    self.save_latest_result(pdf)
+                return success
         
         tasks = [download_with_semaphore(pdf) for pdf in all_pdfs]
         results = await asyncio.gather(*tasks)
@@ -480,6 +536,12 @@ class GGSIPUDownloader:
         logger.info(" Starting GGSIPU Results Monitor")
         logger.info(f" Checking every {self.monitor_interval // 60} minutes for new results")
         logger.info(" New PDFs will be auto-downloaded and deleted after 24 hours")
+        
+        # Show current latest result if exists
+        latest_result = self.load_latest_result()
+        if latest_result:
+            logger.info(f" Latest tracked result: {latest_result['filename']}")
+            logger.info(f" Last updated: {latest_result['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
         
         self.is_monitoring = True
         
@@ -678,7 +740,18 @@ class GGSIPUDownloader:
             logger.info(f" Current Page Hash: {monitoring_data['page_hash'][:8]}...")
             logger.info(f" Known PDFs: {len(monitoring_data['known_pdfs'])}")
         else:
-            logger.info("🔍 No monitoring history found")
+            logger.info("No monitoring history found")
+        
+        # Latest result tracking
+        latest_result = self.load_latest_result()
+        if latest_result:
+            logger.info(f"\nLatest Result Tracked:")
+            logger.info(f" Filename: {latest_result['filename']}")
+            logger.info(f" Title: {latest_result['title'][:60]}...")
+            logger.info(f" Last Updated: {latest_result['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f" Position: {latest_result['position']}")
+        else:
+            logger.info("\nNo latest result tracked yet")
         
         # File statistics
         metadata = self.load_metadata()
@@ -710,10 +783,11 @@ class GGSIPUDownloader:
             logger.info(" No active files")
         
         # Check if directories exist
-        logger.info(f"\n Directory Status:")
+        logger.info(f"\nDirectory Status:")
         logger.info(f"   Download Dir Exists: {self.download_dir.exists()}")
         logger.info(f"   Metadata File Exists: {self.metadata_file.exists()}")
         logger.info(f"   Monitoring File Exists: {self.monitoring_data_file.exists()}")
+        logger.info(f"   Latest Result File Exists: {self.latest_result_file.exists()}")
         
         logger.info("=" * 50)
 
@@ -728,17 +802,24 @@ async def main():
         if mode == '--monitor':
             # Continuous monitoring mode
             interval = 300  # Default 5 minutes
-            if len(sys.argv) > 2:
-                try:
-                    interval = int(sys.argv[2]) * 60  # Convert minutes to seconds
-                except ValueError:
-                    logger.error("Invalid interval. Using default 5 minutes.")
+            keyword = None
+            
+            # Parse additional arguments
+            for i in range(2, len(sys.argv)):
+                arg = sys.argv[i]
+                if arg.startswith('--keyword='):
+                    keyword = arg.split('=', 1)[1]
+                elif arg.isdigit():
+                    try:
+                        interval = int(arg) * 60  # Convert minutes to seconds
+                    except ValueError:
+                        logger.error("Invalid interval. Using default 5 minutes.")
             
             try:
-                async with GGSIPUDownloader(monitor_interval=interval) as downloader:
+                async with GGSIPUDownloader(monitor_interval=interval, filter_keyword=keyword) as downloader:
                     await downloader.start_monitoring()
             except KeyboardInterrupt:
-                print("\n⏹  Monitoring stopped by user")
+                print("\nMonitoring stopped by user")
         
         elif mode == '--check-once':
             # Single check mode
@@ -778,32 +859,62 @@ async def main():
         
         elif mode == '--download-all':
             # Download all results mode (original functionality)
+            keyword = None
+            
+            # Check for keyword parameter
+            for i in range(2, len(sys.argv)):
+                arg = sys.argv[i]
+                if arg.startswith('--keyword='):
+                    keyword = arg.split('=', 1)[1]
+            
             try:
-                async with GGSIPUDownloader() as downloader:
+                async with GGSIPUDownloader(filter_keyword=keyword) as downloader:
                     await downloader.download_all_results()
             except Exception as e:
                 logger.error(f" Error: {e}")
         
         elif mode == '--help':
             print("""
-🔍 GGSIPU Results Monitor & Downloader
+GGSIPU Results Monitor & Downloader
 
 Usage modes:
-  python ggsipu_downloader.py --monitor [interval_minutes]
+  python ggsipu_downloader.py --monitor [interval_minutes] [--keyword=FILTER]
     Start continuous monitoring (default: 5 minutes)
     Example: python ggsipu_downloader.py --monitor 10
+    Example: python ggsipu_downloader.py --monitor --keyword="mba"
     
   python ggsipu_downloader.py --check-once
     Perform a single check for new results
     
-  python ggsipu_downloader.py --download-all
+  python ggsipu_downloader.py --download-all [--keyword=FILTER]
     Download ALL results from website (one-time)
+    Example: python ggsipu_downloader.py --download-all --keyword="btech"
+    Example: python ggsipu_downloader.py --download-all --keyword="m"
+    
+  python ggsipu_downloader.py --test
+    Test all system components
+    
+  python ggsipu_downloader.py --status
+    Show current system status and statistics
     
   python ggsipu_downloader.py --cleanup-only
     Only clean up expired files
     
   python ggsipu_downloader.py --help
     Show this help message
+
+Features:
+  - Auto-cleanup: Files deleted exactly 24 hours after download
+  - Latest result tracking: Resumes monitoring from last processed result
+  - Keyword filtering: Use --keyword to only download PDFs matching that text (any length)
+  - Persistent state: Maintains tracking across restarts
+
+Keyword Examples:
+  --keyword="mba"     → Only downloads PDFs with "mba" in filename or title
+  --keyword="btech"   → Only downloads PDFs with "btech" in filename or title  
+  --keyword="m"       → Only downloads PDFs with letter "m" in filename or title
+  --keyword="2025"    → Only downloads PDFs with "2025" in filename or title
+  --keyword="june"    → Only downloads PDFs with "june" in filename or title
 
 Default (no arguments): Start monitoring with 5-minute intervals
             """)
