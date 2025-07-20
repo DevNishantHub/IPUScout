@@ -12,11 +12,21 @@ Automatically monitors and downloads exam result PDFs from GGSIPU website with 2
 - **Multiple Modes**: Monitor, download-all, test, status, cleanup-only
 - **Organized Storage**: JSON metadata files stored separately from PDFs
 
+## UV Package Manager
+
+This project uses [UV](https://docs.astral.sh/uv/) - a fast Python package manager written in Rust. UV provides faster dependency resolution and installation compared to pip.
+
+**Installation:** Visit [https://docs.astral.sh/uv/](https://docs.astral.sh/uv/) for complete installation instructions for your operating system.
+
+**Quick install commands:**
+- **Windows:** `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+- **macOS/Linux:** `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
 ## Quick Start
 
 1. **Install dependencies**:
    ```bash
-   pip install -r requirements.txt
+   uv sync
    ```
 
 2. **Start monitoring**:
@@ -49,7 +59,7 @@ python ggsipu_downloader.py --download-all --keyword="m"
 
 # Check once for new results
 python ggsipu_downloader.py --check-once
-
+```
 ### Keyword Filtering
 
 The `--keyword` parameter allows you to **filter which PDFs get downloaded**:
