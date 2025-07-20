@@ -50,13 +50,6 @@ python ggsipu_downloader.py --download-all --keyword="m"
 # Check once for new results
 python ggsipu_downloader.py --check-once
 
-# Test system components
-python ggsipu_downloader.py --test
-
-# Show current status and latest tracked result
-python ggsipu_downloader.py --status
-```
-
 ### Keyword Filtering
 
 The `--keyword` parameter allows you to **filter which PDFs get downloaded**:
